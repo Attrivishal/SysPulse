@@ -11,6 +11,7 @@ import time
 from collections import deque
 from dotenv import load_dotenv
 import sys
+import boto3
 import traceback
 
 # Load environment variables
@@ -34,7 +35,7 @@ FARGATE_MEMORY_PRICE = float(os.getenv('FARGATE_MEMORY_PRICE', 0.00445))
 
 app.config['SECRET_KEY'] = SECRET_KEY
 
-# ===== FIXED AWS AUDIT INTEGRATION =====
+# ==================== AWS AUDIT INTEGRATION ====================
 print("=" * 70)
 print("🔍 INITIALIZING AWS AUDIT")
 print("=" * 70)
@@ -44,9 +45,6 @@ aws_audit = None
 
 try:
     # Test AWS credentials first
-    import boto3
-    
-    # Force region if not set
     if not os.getenv('AWS_DEFAULT_REGION'):
         os.environ['AWS_DEFAULT_REGION'] = 'us-east-1'
     
@@ -56,10 +54,9 @@ try:
     print(f"✅ AWS Account: {identity['Account']}")
     print(f"✅ AWS Region: {session.region_name}")
     
-    # FIXED IMPORT: Since aws_audit.py is in the same directory as app.py
     try:
-        # Direct import (files are in same directory)
-        from aws_audit import AWSAudit
+        # Direct import
+        from aws_audit import AWSComprehensiveAuditor as AWSAudit
         print("✅ Successfully imported AWSAudit from aws_audit.py")
     except ImportError as e:
         print(f"❌ Direct import failed: {e}")
@@ -74,8 +71,8 @@ try:
             spec = importlib.util.spec_from_file_location("aws_audit", aws_audit_path)
             aws_audit_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(aws_audit_module)
-            AWSAudit = aws_audit_module.AWSAudit
-            print("✅ Imported AWSAudit using importlib")
+            AWSAudit = aws_audit_module.AWSComprehensiveAuditor
+            print("✅ Imported AWSComprehensiveAuditor using importlib")
         else:
             print(f"❌ aws_audit.py not found at: {aws_audit_path}")
             raise
@@ -84,21 +81,57 @@ try:
     aws_audit = AWSAudit()
     AWS_AUDIT_AVAILABLE = True
     
-    # Test the audit
+    # Test the audit - try different method names
     print("🔍 Testing AWS audit...")
-    test_result = aws_audit.get_structured_audit()
     
-    if 'error' in test_result:
-        print(f"⚠️ Audit test warning: {test_result.get('error')}")
+    # Check what methods are available
+    available_methods = [m for m in dir(aws_audit) if not m.startswith('_') and 'audit' in m.lower() or 'run' in m.lower()]
+    print(f"Available audit methods: {available_methods}")
+    
+    # Try different possible method names
+    test_success = False
+    
+    # Try run_complete_audit first (from AWSComprehensiveAuditor)
+    if hasattr(aws_audit, 'run_complete_audit'):
+        try:
+            test_result = aws_audit.run_complete_audit()
+            if 'error' not in test_result:
+                savings = test_result.get('summary', {}).get('estimated_monthly_savings', 0)
+                print(f"✅ AWS Audit working! Potential savings: ${savings:.2f}/month")
+                test_success = True
+        except Exception as e:
+            print(f"⚠️ run_complete_audit failed: {e}")
+    
+    # Try get_structured_audit (old method name)
+    if not test_success and hasattr(aws_audit, 'get_structured_audit'):
+        try:
+            test_result = aws_audit.get_structured_audit()
+            if 'error' not in test_result:
+                savings = test_result.get('cost_analysis', {}).get('total_potential_savings', 0)
+                print(f"✅ AWS Audit working! Potential savings: ${savings}/month")
+                test_success = True
+        except Exception as e:
+            print(f"⚠️ get_structured_audit failed: {e}")
+    
+    # Try individual audit methods
+    if not test_success and hasattr(aws_audit, 'audit_ec2_resources'):
+        try:
+            ec2_result = aws_audit.audit_ec2_resources()
+            if 'error' not in ec2_result:
+                instances = ec2_result.get('instances', {}).get('total', 0)
+                print(f"✅ AWS Audit partially working! Found {instances} EC2 instances")
+                test_success = True
+        except Exception as e:
+            print(f"⚠️ Individual audit failed: {e}")
+    
+    if test_success:
+        print(f"✅ AWS Audit status: ACTIVE")
     else:
-        savings = test_result.get('cost_analysis', {}).get('total_potential_savings', 0)
-        print(f"✅ AWS Audit working! Potential savings: ${savings}/month")
-    
-    print(f"✅ AWS Audit status: ACTIVE")
+        print(f"⚠️ AWS Audit status: LIMITED")
+        print("💡 Some audit features may not be available")
     
 except Exception as e:
     print(f"❌ AWS Audit initialization failed: {e}")
-    traceback.print_exc()
     AWS_AUDIT_AVAILABLE = False
     aws_audit = None
 
