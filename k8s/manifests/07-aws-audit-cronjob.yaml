@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: aws-resource-audit
+  namespace: flask-monitoring
+spec:
+  schedule: "0 */6 * * *"  # Every 6 hours at minute 0
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: flask-app-sa
+          containers:
+          - name: aws-audit
+            image: YOUR_ECR_REPO/flask-app:latest
+            command:
+              - /bin/bash
+              - -c
+              - |
+                echo '=== Starting AWS Audit ==='
+                python -c "
+                from app.aws_audit import AWSAudit
+                audit = AWSAudit()
+                result = audit.get_structured_audit()
+                
+                # Print summary
+                print('AWS AUDIT RESULTS:')
+                print('===================')
+                print(f'EC2 Instances: {result.get(\"ec2_instances\", {}).get(\"count\", 0)}')
+                print(f'S3 Buckets: {result.get(\"s3_buckets\", {}).get(\"count\", 0)}')
+                print(f'Unattached EBS Volumes: {result.get(\"unattached_volumes\", {}).get(\"count\", 0)}')
+                print(f'Unattached Elastic IPs: {result.get(\"unattached_eips\", {}).get(\"count\", 0)}')
+                
+                # Calculate potential savings
+                savings = 0
+                if result.get('unattached_volumes', {}).get('count', 0) > 0:
+                    savings += result['unattached_volumes']['count'] * 1
+                if result.get('unattached_eips', {}).get('count', 0) > 0:
+                    savings += result['unattached_eips']['count'] * 3.6
+                    
+                print(f'\\n💰 Potential Monthly Savings: \${savings}')
+                print('\\n⚠️  Immediate Actions:')
+                if result.get('unattached_volumes', {}).get('count', 0) > 0:
+                    print(f'  • Delete {result[\"unattached_volumes\"][\"count\"]} unattached EBS volumes')
+                if result.get('unattached_eips', {}).get('count', 0) > 0:
+                    print(f'  • Release {result[\"unattached_eips\"][\"count\"]} unattached Elastic IPs')
+                "
+                echo '=== Audit Complete ==='
+            env:
+            - name: AWS_REGION
+              value: "ap-south-1"
+          restartPolicy: OnFailure

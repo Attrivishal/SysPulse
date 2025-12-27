@@ -10,6 +10,8 @@ import threading
 import time
 from collections import deque
 from dotenv import load_dotenv
+import sys
+import traceback
 
 # Load environment variables
 load_dotenv()
@@ -31,6 +33,76 @@ FARGATE_CPU_PRICE = float(os.getenv('FARGATE_CPU_PRICE', 0.04048))
 FARGATE_MEMORY_PRICE = float(os.getenv('FARGATE_MEMORY_PRICE', 0.00445))
 
 app.config['SECRET_KEY'] = SECRET_KEY
+
+# ===== FIXED AWS AUDIT INTEGRATION =====
+print("=" * 70)
+print("🔍 INITIALIZING AWS AUDIT")
+print("=" * 70)
+
+AWS_AUDIT_AVAILABLE = False
+aws_audit = None
+
+try:
+    # Test AWS credentials first
+    import boto3
+    
+    # Force region if not set
+    if not os.getenv('AWS_DEFAULT_REGION'):
+        os.environ['AWS_DEFAULT_REGION'] = 'us-east-1'
+    
+    session = boto3.Session()
+    sts = session.client('sts')
+    identity = sts.get_caller_identity()
+    print(f"✅ AWS Account: {identity['Account']}")
+    print(f"✅ AWS Region: {session.region_name}")
+    
+    # FIXED IMPORT: Since aws_audit.py is in the same directory as app.py
+    try:
+        # Direct import (files are in same directory)
+        from aws_audit import AWSAudit
+        print("✅ Successfully imported AWSAudit from aws_audit.py")
+    except ImportError as e:
+        print(f"❌ Direct import failed: {e}")
+        print("Trying alternative import method...")
+        
+        # Try importing using importlib
+        import importlib.util
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        aws_audit_path = os.path.join(current_dir, "aws_audit.py")
+        
+        if os.path.exists(aws_audit_path):
+            spec = importlib.util.spec_from_file_location("aws_audit", aws_audit_path)
+            aws_audit_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(aws_audit_module)
+            AWSAudit = aws_audit_module.AWSAudit
+            print("✅ Imported AWSAudit using importlib")
+        else:
+            print(f"❌ aws_audit.py not found at: {aws_audit_path}")
+            raise
+    
+    # Create instance
+    aws_audit = AWSAudit()
+    AWS_AUDIT_AVAILABLE = True
+    
+    # Test the audit
+    print("🔍 Testing AWS audit...")
+    test_result = aws_audit.get_structured_audit()
+    
+    if 'error' in test_result:
+        print(f"⚠️ Audit test warning: {test_result.get('error')}")
+    else:
+        savings = test_result.get('cost_analysis', {}).get('total_potential_savings', 0)
+        print(f"✅ AWS Audit working! Potential savings: ${savings}/month")
+    
+    print(f"✅ AWS Audit status: ACTIVE")
+    
+except Exception as e:
+    print(f"❌ AWS Audit initialization failed: {e}")
+    traceback.print_exc()
+    AWS_AUDIT_AVAILABLE = False
+    aws_audit = None
+
+print("=" * 70)
 
 # ===== REAL-TIME MONITORING SYSTEM =====
 class RealTimeMonitor:
@@ -481,6 +553,117 @@ HTML_TEMPLATE = '''
                     </div>
                 </div>
 
+                <!-- AWS Cost & Audit Section -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+                    <!-- AWS Cost Calculator -->
+                    <div class="bg-gradient-to-r from-gray-50 to-white rounded-2xl p-8 border border-gray-200">
+                        <h2 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
+                            <i class="fas fa-calculator text-red-500 mr-3"></i>AWS Cost Calculator
+                        </h2>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <label class="block text-gray-700 mb-2">
+                                    <i class="fas fa-microchip text-blue-500 mr-2"></i>
+                                    vCPU: <span id="cpuValue" class="font-bold">0.25</span> cores
+                                </label>
+                                <input type="range" min="0.25" max="4" step="0.25" value="0.25" 
+                                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                       oninput="updateCost()" id="cpuSlider">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-gray-700 mb-2">
+                                    <i class="fas fa-memory text-green-500 mr-2"></i>
+                                    Memory: <span id="memoryValue" class="font-bold">0.5</span> GB
+                                </label>
+                                <input type="range" min="0.5" max="16" step="0.5" value="0.5" 
+                                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                                       oninput="updateCost()" id="memorySlider">
+                            </div>
+                            
+                            <div class="pt-4 border-t">
+                                <p class="text-sm text-gray-600">
+                                    <i class="fas fa-info-circle text-blue-500 mr-2"></i>
+                                    Based on AWS Fargate pricing ({{ aws_region }})
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <!-- Cost Results -->
+                        <div class="space-y-4 mt-6">
+                            <div class="flex justify-between items-center p-4 bg-blue-50 rounded-xl">
+                                <div>
+                                    <p class="font-medium text-gray-700">Hourly Cost</p>
+                                    <p class="text-sm text-gray-500">Per pod</p>
+                                </div>
+                                <div class="text-2xl font-bold text-blue-600">$<span id="hourlyCost">0.010</span></div>
+                            </div>
+                            
+                            <div class="flex justify-between items-center p-4 bg-green-50 rounded-xl">
+                                <div>
+                                    <p class="font-medium text-gray-700">Daily Cost</p>
+                                    <p class="text-sm text-gray-500">24 hours</p>
+                                </div>
+                                <div class="text-2xl font-bold text-green-600">$<span id="dailyCost">0.24</span></div>
+                            </div>
+                            
+                            <div class="flex justify-between items-center p-4 bg-purple-50 rounded-xl">
+                                <div>
+                                    <p class="font-medium text-gray-700">Monthly Cost</p>
+                                    <p class="text-sm text-gray-500">30 days</p>
+                                </div>
+                                <div class="text-2xl font-bold text-purple-600">$<span id="monthlyCost">7.20</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AWS Audit Panel -->
+                    <div class="bg-gradient-to-r from-gray-50 to-white rounded-2xl p-8 border border-gray-200">
+                        <h2 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
+                            <i class="fas fa-search-dollar text-green-500 mr-3"></i>AWS Cost Audit
+                        </h2>
+                        
+                        <div class="space-y-6">
+                            <div class="text-center">
+                                <div class="text-5xl font-bold text-gray-800 mb-2" id="aws-cost">$0</div>
+                                <p class="text-gray-600">Potential Monthly Savings</p>
+                                <p class="text-sm text-gray-500" id="aws-issues">0 issues found</p>
+                            </div>
+                            
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+                                <div class="flex items-center mb-2">
+                                    <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>
+                                    <h4 class="font-bold text-gray-700">Quick Audit</h4>
+                                </div>
+                                <p class="text-sm text-gray-600 mb-4">
+                                    Scan for unattached resources that are costing you money
+                                </p>
+                                <button onclick="runAWSAudit()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-3 rounded-xl transition flex items-center justify-center">
+                                    <i class="fas fa-play mr-3"></i>Run AWS Cost Audit
+                                </button>
+                            </div>
+                            
+                            <div class="grid grid-cols-3 gap-4">
+                                <a href="/api/aws/audit/quick" target="_blank" class="inline-flex items-center justify-center bg-blue-500 hover:bg-blue-600 text-white font-medium px-4 py-2 rounded-lg transition text-sm">
+                                    <i class="fas fa-bolt mr-2"></i>Quick
+                                </a>
+                                <a href="/api/aws/audit" target="_blank" class="inline-flex items-center justify-center bg-green-500 hover:bg-green-600 text-white font-medium px-4 py-2 rounded-lg transition text-sm">
+                                    <i class="fas fa-search mr-2"></i>Full
+                                </a>
+                                <a href="/api/aws/audit/structured" target="_blank" class="inline-flex items-center justify-center bg-purple-500 hover:bg-purple-600 text-white font-medium px-4 py-2 rounded-lg transition text-sm">
+                                    <i class="fas fa-list mr-2"></i>Structured
+                                </a>
+                            </div>
+                            
+                            <div class="text-xs text-gray-500 pt-4 border-t">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                AWS Audit requires AWS credentials with read-only permissions
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- System Info Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
                     <!-- System Info -->
@@ -551,72 +734,6 @@ HTML_TEMPLATE = '''
                         <p class="text-gray-600"><i class="fas fa-chart-bar text-purple-500 mr-2"></i>
                             <span class="font-medium">Metrics:</span> Real-time
                         </p>
-                    </div>
-                </div>
-
-                <!-- AWS Cost Calculator -->
-                <div class="bg-gradient-to-r from-gray-50 to-white rounded-2xl p-8 border border-gray-200 mb-10">
-                    <h2 class="text-3xl font-bold text-gray-800 mb-6 flex items-center">
-                        <i class="fas fa-calculator text-red-500 mr-3"></i>AWS Cost Calculator
-                    </h2>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <!-- Input Controls -->
-                        <div class="space-y-6">
-                            <div>
-                                <label class="block text-gray-700 mb-2">
-                                    <i class="fas fa-microchip text-blue-500 mr-2"></i>
-                                    vCPU: <span id="cpuValue" class="font-bold">0.25</span> cores
-                                </label>
-                                <input type="range" min="0.25" max="4" step="0.25" value="0.25" 
-                                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                       oninput="updateCost()" id="cpuSlider">
-                            </div>
-                            
-                            <div>
-                                <label class="block text-gray-700 mb-2">
-                                    <i class="fas fa-memory text-green-500 mr-2"></i>
-                                    Memory: <span id="memoryValue" class="font-bold">0.5</span> GB
-                                </label>
-                                <input type="range" min="0.5" max="16" step="0.5" value="0.5" 
-                                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                                       oninput="updateCost()" id="memorySlider">
-                            </div>
-                            
-                            <div class="pt-4 border-t">
-                                <p class="text-sm text-gray-600">
-                                    <i class="fas fa-info-circle text-blue-500 mr-2"></i>
-                                    Based on AWS Fargate pricing ({{ aws_region }})
-                                </p>
-                            </div>
-                        </div>
-                        
-                        <!-- Cost Results -->
-                        <div class="space-y-4">
-                            <div class="flex justify-between items-center p-4 bg-blue-50 rounded-xl">
-                                <div>
-                                    <p class="font-medium text-gray-700">Hourly Cost</p>
-                                    <p class="text-sm text-gray-500">Per pod</p>
-                                </div>
-                                <div class="text-2xl font-bold text-blue-600">$<span id="hourlyCost">0.010</span></div>
-                            </div>
-                            
-                            <div class="flex justify-between items-center p-4 bg-green-50 rounded-xl">
-                                <div>
-                                    <p class="font-medium text-gray-700">Daily Cost</p>
-                                    <p class="text-sm text-gray-500">24 hours</p>
-                                </div>
-                                <div class="text-2xl font-bold text-green-600">$<span id="dailyCost">0.24</span></div>
-                            </div>
-                            
-                            <div class="flex justify-between items-center p-4 bg-purple-50 rounded-xl">
-                                <div>
-                                    <p class="font-medium text-gray-700">Monthly Cost</p>
-                                    <p class="text-sm text-gray-500">30 days</p>
-                                </div>
-                                <div class="text-2xl font-bold text-purple-600">$<span id="monthlyCost">7.20</span></div>
-                            </div>
-                        </div>
                     </div>
                 </div>
 
@@ -984,6 +1101,41 @@ HTML_TEMPLATE = '''
             document.getElementById('monthlyCost').textContent = monthlyCost.toFixed(2);
         }
         
+        // AWS Audit Functions
+        async function runAWSAudit() {
+            try {
+                const response = await fetch('/api/aws/audit/quick');
+                const data = await response.json();
+                
+                document.getElementById('aws-cost').textContent = '$' + data.estimated_monthly_cost;
+                document.getElementById('aws-issues').textContent = data.critical_items.length + ' issues found';
+                
+                // Show alert with details
+                if (data.critical_items.length > 0) {
+                    let message = `Found ${data.critical_items.length} AWS cost issues:\n`;
+                    data.critical_items.forEach(item => {
+                        message += `\n• ${item.action} (${item.count}x) - $${item.cost_per_month}/month`;
+                    });
+                    message += `\n\nTotal potential savings: $${data.estimated_monthly_cost}/month`;
+                    alert(message);
+                } else {
+                    alert('✅ No AWS cost issues found!');
+                }
+            } catch (error) {
+                console.error('AWS audit error:', error);
+                alert('❌ AWS Audit failed. Please check if AWS credentials are configured.');
+            }
+        }
+        
+        async function showAWSSavings() {
+            const response = await fetch('/api/aws/audit/quick');
+            const data = await response.json();
+            
+            // Update dashboard metrics
+            document.getElementById('aws-cost').textContent = '$' + data.estimated_monthly_cost;
+            document.getElementById('aws-issues').textContent = data.critical_items.length + ' issues found';
+        }
+        
         // Initialize everything
         document.addEventListener('DOMContentLoaded', function() {
             initCharts();
@@ -993,6 +1145,9 @@ HTML_TEMPLATE = '''
             
             // Update every 10 seconds
             setInterval(updateCharts, 10000);
+            
+            // Load AWS audit data if available
+            showAWSSavings().catch(console.error);
         });
     </script>
 </body>
@@ -1023,6 +1178,7 @@ def real_metrics():
     """API endpoint for real-time metrics"""
     metrics = monitor.get_metrics()
     metrics['redis_connected'] = REDIS_AVAILABLE
+    metrics['aws_audit_available'] = AWS_AUDIT_AVAILABLE
     return jsonify(metrics)
 
 @app.route('/api/metrics/history')
@@ -1082,14 +1238,15 @@ def health():
         "memory_ok": metrics['memory'] < ALERT_MEMORY_THRESHOLD,
         "disk_ok": metrics['disk'] < ALERT_DISK_THRESHOLD,
         "redis_connected": REDIS_AVAILABLE,
-        "app_running": True
+        "app_running": True,
+        "aws_audit_available": AWS_AUDIT_AVAILABLE
     }
     
     return jsonify({
         "status": status,
         "timestamp": datetime.now().isoformat(),
         "service": "python-web-app",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "metrics": metrics,
         "checks": checks,
         "alerts": alerts
@@ -1102,17 +1259,18 @@ def info():
     return {
         "application": {
             "name": "Python Flask EKS Deployment",
-            "version": "2.2.0",
-            "description": "Containerized web app with real-time monitoring",
+            "version": "2.3.0",
+            "description": "Containerized web app with real-time monitoring & AWS cost audit",
             "author": "DevOps Learning Project",
-            "features": ["Real-time Metrics", "Visitor Analytics", "Cost Calculator", "EKS Deployment"]
+            "features": ["Real-time Metrics", "Visitor Analytics", "Cost Calculator", "EKS Deployment", "AWS Cost Audit"]
         },
         "environment": {
             "python_version": platform.python_version(),
             "flask_version": "2.3.3",
             "hostname": socket.gethostname(),
             "platform": platform.platform(),
-            "redis": "connected" if REDIS_AVAILABLE else "in_memory"
+            "redis": "connected" if REDIS_AVAILABLE else "in_memory",
+            "aws_audit": "available" if AWS_AUDIT_AVAILABLE else "unavailable"
         },
         "deployment": {
             "platform": "AWS EKS",
@@ -1127,7 +1285,10 @@ def info():
             {"path": "/api/real-metrics", "method": "GET", "description": "Real-time metrics (JSON)"},
             {"path": "/api/metrics/live", "method": "GET", "description": "Live metrics stream (SSE)"},
             {"path": "/api/system/alerts", "method": "GET", "description": "System alerts"},
-            {"path": "/api/cost", "method": "GET", "description": "AWS cost calculator"}
+            {"path": "/api/cost", "method": "GET", "description": "AWS cost calculator"},
+            {"path": "/api/aws/audit", "method": "GET", "description": "Complete AWS audit"},
+            {"path": "/api/aws/audit/quick", "method": "GET", "description": "Quick AWS cost audit"},
+            {"path": "/api/aws/audit/structured", "method": "GET", "description": "Structured AWS audit"}
         ],
         "timestamp": datetime.now().isoformat()
     }
@@ -1190,26 +1351,122 @@ def api_status():
             "visitor_counter": "enabled",
             "cost_calculator": "enabled",
             "alerts": "enabled",
-            "charts": "enabled"
+            "charts": "enabled",
+            "aws_audit": "enabled" if AWS_AUDIT_AVAILABLE else "disabled"
         },
         "timestamp": datetime.now().isoformat()
     }
 
+# ===== AWS AUDIT ROUTES =====
+@app.route('/api/aws/audit')
+def aws_audit_endpoint():
+    """Run complete AWS audit"""
+    if not AWS_AUDIT_AVAILABLE:
+        return jsonify({
+            "error": "AWS Audit module not available",
+            "message": "Please install the AWS audit module or check configuration"
+        }), 503
+    
+    try:
+        result = aws_audit.run_audit()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({
+            "error": "AWS audit failed",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/aws/audit/structured')
+def aws_audit_structured():
+    """Get structured AWS audit (Python-native)"""
+    if not AWS_AUDIT_AVAILABLE:
+        return jsonify({
+            "error": "AWS Audit module not available",
+            "message": "Please install the AWS audit module or check configuration"
+        }), 503
+    
+    try:
+        result = aws_audit.get_structured_audit()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({
+            "error": "AWS structured audit failed",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/aws/audit/quick')
+def aws_audit_quick():
+    """Quick audit - just critical cost items"""
+    if not AWS_AUDIT_AVAILABLE:
+        return jsonify({
+            "error": "AWS Audit module not available",
+            "message": "Please install the AWS audit module or check configuration"
+        }), 503
+    
+    try:
+        result = aws_audit.get_structured_audit()
+        
+        # Filter to only cost-related items
+        quick_result = {
+            'timestamp': datetime.now().isoformat(),
+            'critical_items': [],
+            'estimated_monthly_cost': 0,
+            'aws_audit_available': True
+        }
+        
+        # Calculate estimated cost
+        if 'unattached_volumes' in result and 'count' in result['unattached_volumes']:
+            count = result['unattached_volumes']['count']
+            if count > 0:
+                quick_result['critical_items'].append({
+                    'type': 'unattached_ebs',
+                    'count': count,
+                    'cost_per_month': count * 1,  # ~$1 per volume/month
+                    'action': 'Delete volumes'
+                })
+        
+        if 'unattached_eips' in result and 'count' in result['unattached_eips']:
+            count = result['unattached_eips']['count']
+            if count > 0:
+                quick_result['critical_items'].append({
+                    'type': 'unattached_eip',
+                    'count': count,
+                    'cost_per_month': count * 3.6,  # ~$3.6 per EIP/month
+                    'action': 'Release Elastic IPs'
+                })
+        
+        # Sum costs
+        quick_result['estimated_monthly_cost'] = sum(
+            item['cost_per_month'] for item in quick_result['critical_items']
+        )
+        
+        return jsonify(quick_result)
+    except Exception as e:
+        return jsonify({
+            "error": "AWS quick audit failed",
+            "message": str(e),
+            "estimated_monthly_cost": 0,
+            "critical_items": [],
+            "aws_audit_available": True
+        })
+
 # ===== START THE APPLICATION =====
 if __name__ == '__main__':
     print("=" * 70)
-    print("🚀 FLASK APP WITH REAL-TIME METRICS - READY FOR EKS DEPLOYMENT")
+    print("🚀 FLASK APP WITH REAL-TIME METRICS & AWS AUDIT - READY FOR EKS DEPLOYMENT")
     print("=" * 70)
     print(f"✅ Environment: {FLASK_ENV}")
     print(f"✅ Redis: {get_redis_status()}")
     print(f"✅ Real-time monitoring: Every {METRICS_INTERVAL}s")
     print(f"✅ Alert thresholds: CPU={ALERT_CPU_THRESHOLD}%, MEM={ALERT_MEMORY_THRESHOLD}%, DISK={ALERT_DISK_THRESHOLD}%")
     print(f"✅ AWS Region: {AWS_REGION}")
+    print(f"✅ AWS Audit: {'Available' if AWS_AUDIT_AVAILABLE else 'Not Available'}")
     print("🌐 Dashboard: http://localhost:5000")
     print("📊 Live Metrics: http://localhost:5000/api/real-metrics")
     print("📈 Live Stream: http://localhost:5000/api/metrics/live")
     print("⚡ Health: http://localhost:5000/health")
     print("💰 Cost API: http://localhost:5000/api/cost?cpu=0.5&memory=1")
+    print("🔍 AWS Audit: http://localhost:5000/api/aws/audit/quick")
     print("=" * 70)
     
     # Start Flask server

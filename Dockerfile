@@ -18,6 +18,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     procps \
+    awscli \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /root/.local /root/.local
@@ -25,6 +27,9 @@ COPY --from=builder /root/.local /root/.local
 # Copy application
 COPY app/ ./app/
 COPY static/ ./static/
+
+# Install additional Python packages for AWS
+RUN pip install --user --no-cache-dir boto3==1.34.0
 
 ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONPATH=/app
