@@ -1,0 +1,6 @@
+Flask==2.3.3
+psutil==5.9.6
+redis==5.0.1
+python-dotenv==1.0.0
+gunicorn==21.2.0
+gevent==23.9.1

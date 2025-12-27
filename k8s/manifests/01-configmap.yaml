@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flask-app-config
+  namespace: flask-app
+data:
+  FLASK_ENV: "production"
+  REDIS_HOST: "redis-master"
+  REDIS_PORT: "6379"
+  METRICS_INTERVAL: "5"
+  ALERT_CPU_THRESHOLD: "80"
+  ALERT_MEMORY_THRESHOLD: "85"
+  ALERT_DISK_THRESHOLD: "90"
+  AWS_REGION: "ap-south-1"
+  FARGATE_CPU_PRICE: "0.04048"
+  FARGATE_MEMORY_PRICE: "0.00445"
