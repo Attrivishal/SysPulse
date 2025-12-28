@@ -1,11 +1,3 @@
-"""
-AWS Comprehensive Resource Auditor
-Author: Cloud Auditor
-Description: Complete AWS resource audit tool covering all essential services
-Version: 2.1 - Fixed with all required methods
-Features: Cost optimization, security checks, compliance, recommendations
-"""
-
 import boto3
 from datetime import datetime, timedelta, timezone
 import json
@@ -56,7 +48,7 @@ class AuditFinding:
     description: str
     recommendation: str
     estimated_savings: float = 0.0
-    region: str = "us-east-1"
+    region: str = "ap-south-1"
     timestamp: datetime = None
     
     def __post_init__(self):
@@ -181,11 +173,50 @@ class AWSComprehensiveAuditor:
     # ==================== NEW: BACKWARD COMPATIBILITY METHODS ====================
     
     def get_structured_audit(self):
+        """Get structured audit data for web dashboard - FIXED VERSION"""
         try:
             # Run quick individual audits
             ec2_data = self.audit_ec2_resources()
             s3_data = self.audit_s3_buckets()
             iam_data = self.audit_iam_resources()
+            
+            # Calculate total resources audited - FIXED!
+            total_resources = 0
+            
+            # Count EC2 resources
+            if isinstance(ec2_data, dict):
+                if 'instances' in ec2_data and 'total' in ec2_data['instances']:
+                    total_resources += ec2_data['instances']['total']
+                
+                if 'volumes' in ec2_data and 'total' in ec2_data['volumes']:
+                    total_resources += ec2_data['volumes']['total']
+                
+                if 'elastic_ips' in ec2_data and 'total' in ec2_data['elastic_ips']:
+                    total_resources += ec2_data['elastic_ips']['total']
+                
+                if 'snapshots' in ec2_data and 'total' in ec2_data['snapshots']:
+                    total_resources += ec2_data['snapshots']['total']
+                
+                if 'amis' in ec2_data and 'total' in ec2_data['amis']:
+                    total_resources += ec2_data['amis']['total']
+                
+                if 'security_groups' in ec2_data and 'total' in ec2_data.get('security_groups', {}):
+                    total_resources += ec2_data['security_groups']['total']
+            
+            # Count IAM resources
+            if isinstance(iam_data, dict):
+                if 'users' in iam_data and 'total' in iam_data['users']:
+                    total_resources += iam_data['users']['total']
+                
+                if 'roles' in iam_data and 'total' in iam_data['roles']:
+                    total_resources += iam_data['roles']['total']
+                
+                if 'policies' in iam_data and 'total' in iam_data['policies']:
+                    total_resources += iam_data['policies']['total']
+            
+            # Count S3 resources
+            if isinstance(s3_data, dict) and 'total' in s3_data:
+                total_resources += s3_data['total']
             
             # Calculate total savings
             total_savings = 0
@@ -206,28 +237,95 @@ class AWSComprehensiveAuditor:
                     'region': f.region
                 })
             
-            return {
+            # Prepare detailed structure
+            structured_result = {
                 'cost_analysis': {
                     'total_potential_savings': total_savings,
                     'estimated_monthly_cost': 0
                 },
                 'summary': {
-                    'total_resources_audited': 3,
+                    'total_resources_audited': total_resources,  # THIS WAS FIXED!
                     'total_findings': len(self.findings),
                     'estimated_monthly_savings': total_savings
                 },
                 'details': {
-                    'ec2': ec2_data,
-                    's3': s3_data,
-                    'iam': iam_data
+                    'ec2': {
+                        'instances': {
+                            'total': ec2_data.get('instances', {}).get('total', 0),
+                            'running': ec2_data.get('instances', {}).get('running', 0),
+                            'stopped': ec2_data.get('instances', {}).get('stopped', 0)
+                        },
+                        'volumes': {
+                            'attached': ec2_data.get('volumes', {}).get('attached', 0),
+                            'unattached': ec2_data.get('volumes', {}).get('unattached', 0)
+                        },
+                        'elastic_ips': {
+                            'attached': ec2_data.get('elastic_ips', {}).get('attached', 0),
+                            'unattached': ec2_data.get('elastic_ips', {}).get('unattached', 0)
+                        },
+                        'snapshots': {
+                            'total': ec2_data.get('snapshots', {}).get('total', 0),
+                            'old': ec2_data.get('snapshots', {}).get('old', 0)
+                        },
+                        'amis': {
+                            'total': ec2_data.get('amis', {}).get('total', 0),
+                            'unused': ec2_data.get('amis', {}).get('unused', 0)
+                        },
+                        'findings': []
+                    },
+                    'iam': {
+                        'users': {
+                            'total': iam_data.get('users', {}).get('total', 0),
+                            'with_mfa': iam_data.get('users', {}).get('with_mfa', 0),
+                            'without_mfa': iam_data.get('users', {}).get('without_mfa', 0)
+                        },
+                        'roles': {
+                            'total': iam_data.get('roles', {}).get('total', 0)
+                        },
+                        'policies': {
+                            'total': iam_data.get('policies', {}).get('total', 0)
+                        },
+                        'access_keys': {
+                            'total': iam_data.get('access_keys', {}).get('total', 0),
+                            'old': iam_data.get('access_keys', {}).get('old', 0)
+                        },
+                        'findings': []
+                    },
+                    's3': {
+                        'total': s3_data.get('total', 0),
+                        'empty_buckets': s3_data.get('empty_buckets', []),
+                        'large_buckets': s3_data.get('large_buckets', []),
+                        'public_buckets': s3_data.get('public_buckets', []),
+                        'unencrypted_buckets': s3_data.get('unencrypted_buckets', []),
+                        'unversioned_buckets': s3_data.get('unversioned_buckets', []),
+                        'details': s3_data.get('details', [])
+                    }
                 },
                 'findings': findings_list,
-                'status': 'success'
+                'status': 'success',
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'region': self.region
             }
+            
+            print(f"✅ Structured audit complete!")
+            print(f"📊 Total Resources Audited: {total_resources}")
+            print(f"🔍 Total Findings: {len(self.findings)}")
+            print(f"💰 Estimated Savings: ${total_savings:.2f}/month")
+            
+            return structured_result
+            
         except Exception as e:
+            print(f"❌ Structured audit failed: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 'error': str(e),
-                'status': 'failed'
+                'status': 'failed',
+                'summary': {
+                    'total_resources_audited': 0,
+                    'total_findings': 0,
+                    'estimated_monthly_savings': 0
+                }
             }
     
     def check_ec2_instances(self):
@@ -344,16 +442,17 @@ class AWSComprehensiveAuditor:
     # ==================== COMPUTE SERVICES ====================
     
     def audit_ec2_resources(self) -> Dict[str, Any]:
-        """Comprehensive EC2 resource audit"""
+        """Comprehensive EC2 resource audit - FIXED COUNTING"""
         print("  → EC2 Instances, AMIs, Snapshots, EIPs...")
         
         try:
             result = {
-                'instances': {'running': 0, 'stopped': 0, 'total': 0},
-                'volumes': {'attached': 0, 'unattached': 0},
+                'instances': {'running': 0, 'stopped': 0, 'total': 0, 'list': []},
+                'volumes': {'attached': 0, 'unattached': 0, 'total': 0},
                 'snapshots': {'total': 0, 'old': 0},
                 'amis': {'total': 0, 'unused': 0},
-                'elastic_ips': {'attached': 0, 'unattached': 0},
+                'elastic_ips': {'attached': 0, 'unattached': 0, 'total': 0},
+                'security_groups': {'total': 0, 'overly_permissive': []},
                 'findings': []
             }
             
@@ -396,9 +495,18 @@ class AWSComprehensiveAuditor:
                             estimated_savings=2.0 * 30,  # Approx EBS costs
                             region=self.region
                         ))
+                    
+                    # Add to instance list
+                    result['instances']['list'].append({
+                        'id': instance['InstanceId'],
+                        'type': instance.get('InstanceType', 'unknown'),
+                        'state': state,
+                        'launch_time': launch_time.isoformat() if 'LaunchTime' in instance else ''
+                    })
             
             # 2. EBS Volumes
             volumes = self.ec2.describe_volumes()
+            result['volumes']['total'] = len(volumes['Volumes'])
             for volume in volumes['Volumes']:
                 if volume['State'] == 'available':
                     result['volumes']['unattached'] += 1
@@ -427,6 +535,7 @@ class AWSComprehensiveAuditor:
             
             # 4. Elastic IPs
             addresses = self.ec2.describe_addresses()
+            result['elastic_ips']['total'] = len(addresses['Addresses'])
             for address in addresses['Addresses']:
                 if 'InstanceId' not in address and 'NetworkInterfaceId' not in address:
                     result['elastic_ips']['unattached'] += 1
@@ -443,6 +552,41 @@ class AWSComprehensiveAuditor:
                     ))
                 else:
                     result['elastic_ips']['attached'] += 1
+            
+            # 5. Security Groups
+            sgs = self.vpc.describe_security_groups()
+            result['security_groups']['total'] = len(sgs['SecurityGroups'])
+            
+            # Check for overly permissive security groups
+            for sg in sgs['SecurityGroups']:
+                for permission in sg.get('IpPermissions', []):
+                    for ip_range in permission.get('IpRanges', []):
+                        if ip_range.get('CidrIp') == '0.0.0.0/0':
+                            from_port = permission.get('FromPort')
+                            to_port = permission.get('ToPort')
+                            
+                            risky_ports = [22, 3389, 1433, 3306, 5432, 1521]
+                            if from_port in risky_ports or to_port in risky_ports:
+                                result['security_groups']['overly_permissive'].append({
+                                    'sg_id': sg['GroupId'],
+                                    'sg_name': sg['GroupName'],
+                                    'port': from_port,
+                                    'cidr': '0.0.0.0/0'
+                                })
+                                
+                                self.findings.append(AuditFinding(
+                                    resource_type=ResourceType.SECURITY_GROUP,
+                                    resource_id=sg['GroupId'],
+                                    finding="Overly permissive security group",
+                                    severity=Severity.HIGH,
+                                    description=f"Security group {sg['GroupName']} allows {from_port} from 0.0.0.0/0",
+                                    recommendation="Restrict to specific IP ranges",
+                                    region=self.region
+                                ))
+            
+            # 6. AMIs
+            amis = self.ec2.describe_images(Owners=['self'])
+            result['amis']['total'] = len(amis['Images'])
             
             return result
             
@@ -560,7 +704,7 @@ class AWSComprehensiveAuditor:
     # ==================== STORAGE SERVICES ====================
     
     def audit_s3_buckets(self) -> Dict[str, Any]:
-        """Comprehensive S3 bucket audit with security checks"""
+        """Comprehensive S3 bucket audit with security checks - FIXED"""
         print("  → S3 Buckets (Security, Cost, Compliance)...")
         
         try:
@@ -1019,12 +1163,12 @@ class AWSComprehensiveAuditor:
     # ==================== SECURITY SERVICES ====================
     
     def audit_iam_resources(self) -> Dict[str, Any]:
-        """Comprehensive IAM resource audit"""
+        """Comprehensive IAM resource audit - FIXED"""
         print("  → IAM Users, Roles, Policies...")
         
         try:
             result = {
-                'users': {'total': 0, 'with_mfa': 0, 'without_mfa': 0},
+                'users': {'total': 0, 'with_mfa': 0, 'without_mfa': 0, 'list': []},
                 'roles': {'total': 0},
                 'policies': {'total': 0},
                 'access_keys': {'total': 0, 'old': 0},
@@ -1037,6 +1181,7 @@ class AWSComprehensiveAuditor:
             
             for user in users['Users']:
                 user_name = user['UserName']
+                result['users']['list'].append(user_name)
                 
                 # Check MFA
                 mfa_devices = self.iam.list_mfa_devices(UserName=user_name)
