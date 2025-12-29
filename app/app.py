@@ -81,11 +81,27 @@ try:
     aws_audit = AWSAudit(region=AWS_REGION)
     AWS_AUDIT_AVAILABLE = True
     
-    # Test the audit
+    # Test the audit - FIXED: Use real audit method
     print("🔍 Testing AWS audit...")
     test_success = False
     
-    if hasattr(aws_audit, 'run_complete_audit'):
+    # Try to get structured audit first (this should work with real AWS data)
+    if hasattr(aws_audit, 'get_structured_audit'):
+        try:
+            test_result = aws_audit.get_structured_audit()
+            if 'error' not in test_result:
+                # Get savings from the correct location
+                total_savings = test_result.get('cost_analysis', {}).get('total_potential_savings', 0)
+                if total_savings == 0:
+                    total_savings = test_result.get('summary', {}).get('estimated_monthly_savings', 0)
+                
+                print(f"✅ AWS Audit working! Potential savings: ${total_savings:.2f}/month")
+                test_success = True
+        except Exception as e:
+            print(f"⚠️ get_structured_audit failed: {e}")
+    
+    # If structured audit failed, try run_complete_audit
+    if not test_success and hasattr(aws_audit, 'run_complete_audit'):
         try:
             test_result = aws_audit.run_complete_audit()
             if 'error' not in test_result:
@@ -94,16 +110,6 @@ try:
                 test_success = True
         except Exception as e:
             print(f"⚠️ run_complete_audit failed: {e}")
-    
-    if not test_success and hasattr(aws_audit, 'get_structured_audit'):
-        try:
-            test_result = aws_audit.get_structured_audit()
-            if 'error' not in test_result:
-                savings = test_result.get('cost_analysis', {}).get('total_potential_savings', 0)
-                print(f"✅ AWS Audit working! Potential savings: ${savings}/month")
-                test_success = True
-        except Exception as e:
-            print(f"⚠️ get_structured_audit failed: {e}")
     
     if test_success:
         print(f"✅ AWS Audit status: ACTIVE")
@@ -1264,34 +1270,20 @@ HTML_TEMPLATE = '''
             document.getElementById('monthlyCost').textContent = monthlyCost.toFixed(2);
         }
         
-        // AWS Audit
+        // AWS Audit - FIXED: Now uses real API
         async function runAWSAudit() {
             try {
                 const btn = document.querySelector('button[onclick="runAWSAudit()"]');
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Running...';
                 btn.disabled = true;
                 
-                // Simulate API call
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                // Use real API call instead of demo data
+                const response = await fetch('/api/aws/audit/structured');
+                const auditData = await response.json();
                 
-                // Demo audit data
-                const auditData = {
-                    cost_analysis: {
-                        total_potential_savings: 125.50
-                    },
-                    summary: {
-                        total_findings: 3
-                    },
-                    details: {
-                        ec2: {
-                            instances: { total: 8 },
-                            volumes: { unattached: 2 }
-                        },
-                        iam: {
-                            users: { total: 12, without_mfa: 2 }
-                        }
-                    }
-                };
+                if (auditData.error) {
+                    throw new Error(auditData.message || 'Audit failed');
+                }
                 
                 btn.innerHTML = '<i class="fas fa-play mr-2"></i>Run AWS Cost Audit';
                 btn.disabled = false;
@@ -1302,21 +1294,36 @@ HTML_TEMPLATE = '''
                 const btn = document.querySelector('button[onclick="runAWSAudit()"]');
                 btn.innerHTML = '<i class="fas fa-play mr-2"></i>Run AWS Cost Audit';
                 btn.disabled = false;
-                alert('AWS Audit failed. Check AWS credentials.');
+                alert('AWS Audit failed: ' + error.message);
             }
         }
         
         function updateAuditDashboard(auditData) {
             const detailsContainer = document.getElementById('audit-details');
-            let totalSavings = auditData.cost_analysis?.total_potential_savings || 125.50;
+            
+            // Get savings from correct location
+            let totalSavings = 0;
+            if (auditData.cost_analysis && auditData.cost_analysis.total_potential_savings) {
+                totalSavings = auditData.cost_analysis.total_potential_savings;
+            } else if (auditData.summary && auditData.summary.estimated_monthly_savings) {
+                totalSavings = auditData.summary.estimated_monthly_savings;
+            }
             
             document.getElementById('aws-cost').textContent = '$' + totalSavings.toFixed(2);
             
-            let issueCount = auditData.summary?.total_findings || 3;
+            let issueCount = 0;
+            if (auditData.summary && auditData.summary.total_findings) {
+                issueCount = auditData.summary.total_findings;
+            } else if (auditData.findings) {
+                issueCount = auditData.findings.length;
+            }
+            
             document.getElementById('aws-issues').textContent = issueCount + ' issues found';
             
             let html = '';
-            if (auditData.details?.ec2) {
+            
+            // EC2 Details
+            if (auditData.details && auditData.details.ec2) {
                 const ec2 = auditData.details.ec2;
                 html += `
                 <div class="bg-blue-900/20 rounded-lg p-3">
@@ -1337,7 +1344,8 @@ HTML_TEMPLATE = '''
                 </div>`;
             }
             
-            if (auditData.details?.iam) {
+            // IAM Details
+            if (auditData.details && auditData.details.iam) {
                 const iam = auditData.details.iam;
                 html += `
                 <div class="bg-green-900/20 rounded-lg p-3">
@@ -1351,8 +1359,30 @@ HTML_TEMPLATE = '''
                             <div class="text-xs text-gray-400">Total Users</div>
                         </div>
                         <div class="text-center">
-                            <div class="text-lg font-bold ${iam.users?.without_mfa > 0 ? 'text-red-300' : 'text-green-300'}">${iam.users?.without_mfa > 0 ? 'Needs MFA' : 'Secure'}</div>
+                            <div class="text-lg font-bold ${(iam.users?.without_mfa || 0) > 0 ? 'text-red-300' : 'text-green-300'}">${(iam.users?.without_mfa || 0) > 0 ? 'Needs MFA' : 'Secure'}</div>
                             <div class="text-xs text-gray-400">MFA Status</div>
+                        </div>
+                    </div>
+                </div>`;
+            }
+            
+            // S3 Details
+            if (auditData.details && auditData.details.s3) {
+                const s3 = auditData.details.s3;
+                html += `
+                <div class="bg-purple-900/20 rounded-lg p-3">
+                    <div class="flex items-center mb-2">
+                        <i class="fas fa-database text-purple-300 mr-2"></i>
+                        <h4 class="font-bold text-white text-sm">S3 Storage</h4>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="text-center">
+                            <div class="text-lg font-bold text-purple-300">${s3.total || 0}</div>
+                            <div class="text-xs text-gray-400">Buckets</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-lg font-bold ${(s3.public_buckets?.length || 0) > 0 ? 'text-red-300' : 'text-green-300'}">${(s3.public_buckets?.length || 0) > 0 ? 'Public' : 'Secure'}</div>
+                            <div class="text-xs text-gray-400">Security</div>
                         </div>
                     </div>
                 </div>`;
@@ -1637,12 +1667,14 @@ def aws_audit_endpoint():
         }), 503
     
     try:
-        result = aws_audit.run_audit()
+        # Use get_structured_audit which gives real data
+        result = aws_audit.get_structured_audit()
         return jsonify(result)
     except Exception as e:
         return jsonify({
             "error": "AWS audit failed",
-            "message": str(e)
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
         }), 500
 
 @app.route('/api/aws/audit/structured')
@@ -1658,9 +1690,12 @@ def aws_audit_structured():
         result = aws_audit.get_structured_audit()
         return jsonify(result)
     except Exception as e:
+        print(f"Structured audit error: {e}")
+        traceback.print_exc()
         return jsonify({
             "error": "AWS structured audit failed",
-            "message": str(e)
+            "message": str(e),
+            "timestamp": datetime.now().isoformat()
         }), 500
 
 @app.route('/api/aws/audit/quick')
@@ -1683,26 +1718,42 @@ def aws_audit_quick():
             'aws_audit_available': True
         }
         
-        # Calculate estimated cost
-        if 'unattached_volumes' in result and 'count' in result['unattached_volumes']:
-            count = result['unattached_volumes']['count']
-            if count > 0:
-                quick_result['critical_items'].append({
-                    'type': 'unattached_ebs',
-                    'count': count,
-                    'cost_per_month': count * 1,  # ~$1 per volume/month
-                    'action': 'Delete volumes'
-                })
-        
-        if 'unattached_eips' in result and 'count' in result['unattached_eips']:
-            count = result['unattached_eips']['count']
-            if count > 0:
-                quick_result['critical_items'].append({
-                    'type': 'unattached_eip',
-                    'count': count,
-                    'cost_per_month': count * 3.6,  # ~$3.6 per EIP/month
-                    'action': 'Release Elastic IPs'
-                })
+        # Get EC2 data for cost calculation
+        if 'details' in result and 'ec2' in result['details']:
+            ec2_data = result['details']['ec2']
+            
+            # Unattached volumes
+            if 'volumes' in ec2_data and 'unattached' in ec2_data['volumes']:
+                count = ec2_data['volumes']['unattached']
+                if count > 0:
+                    quick_result['critical_items'].append({
+                        'type': 'unattached_ebs',
+                        'count': count,
+                        'cost_per_month': count * 5,  # ~$5 per volume/month
+                        'action': 'Delete unattached volumes'
+                    })
+            
+            # Unattached Elastic IPs
+            if 'elastic_ips' in ec2_data and 'unattached' in ec2_data['elastic_ips']:
+                count = ec2_data['elastic_ips']['unattached']
+                if count > 0:
+                    quick_result['critical_items'].append({
+                        'type': 'unattached_eip',
+                        'count': count,
+                        'cost_per_month': count * 3.6,  # ~$3.6 per EIP/month
+                        'action': 'Release Elastic IPs'
+                    })
+            
+            # Stopped instances
+            if 'instances' in ec2_data and 'stopped' in ec2_data['instances']:
+                count = ec2_data['instances']['stopped']
+                if count > 0:
+                    quick_result['critical_items'].append({
+                        'type': 'stopped_instances',
+                        'count': count,
+                        'cost_per_month': count * 10,  # ~$10 per instance/month for EBS
+                        'action': 'Terminate stopped instances'
+                    })
         
         # Sum costs
         quick_result['estimated_monthly_cost'] = sum(
@@ -1716,7 +1767,8 @@ def aws_audit_quick():
             "message": str(e),
             "estimated_monthly_cost": 0,
             "critical_items": [],
-            "aws_audit_available": True
+            "aws_audit_available": True,
+            "timestamp": datetime.now().isoformat()
         })
 
 # ===== START THE APPLICATION =====

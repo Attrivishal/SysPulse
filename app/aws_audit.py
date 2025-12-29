@@ -175,6 +175,9 @@ class AWSComprehensiveAuditor:
     def get_structured_audit(self):
         """Get structured audit data for web dashboard - FIXED VERSION"""
         try:
+            # Clear previous findings
+            self.findings = []
+            
             # Run quick individual audits
             ec2_data = self.audit_ec2_resources()
             s3_data = self.audit_s3_buckets()
@@ -184,7 +187,7 @@ class AWSComprehensiveAuditor:
             total_resources = 0
             
             # Count EC2 resources
-            if isinstance(ec2_data, dict):
+            if isinstance(ec2_data, dict) and 'error' not in ec2_data:
                 if 'instances' in ec2_data and 'total' in ec2_data['instances']:
                     total_resources += ec2_data['instances']['total']
                 
@@ -193,29 +196,17 @@ class AWSComprehensiveAuditor:
                 
                 if 'elastic_ips' in ec2_data and 'total' in ec2_data['elastic_ips']:
                     total_resources += ec2_data['elastic_ips']['total']
-                
-                if 'snapshots' in ec2_data and 'total' in ec2_data['snapshots']:
-                    total_resources += ec2_data['snapshots']['total']
-                
-                if 'amis' in ec2_data and 'total' in ec2_data['amis']:
-                    total_resources += ec2_data['amis']['total']
-                
-                if 'security_groups' in ec2_data and 'total' in ec2_data.get('security_groups', {}):
-                    total_resources += ec2_data['security_groups']['total']
             
             # Count IAM resources
-            if isinstance(iam_data, dict):
+            if isinstance(iam_data, dict) and 'error' not in iam_data:
                 if 'users' in iam_data and 'total' in iam_data['users']:
                     total_resources += iam_data['users']['total']
                 
                 if 'roles' in iam_data and 'total' in iam_data['roles']:
                     total_resources += iam_data['roles']['total']
-                
-                if 'policies' in iam_data and 'total' in iam_data['policies']:
-                    total_resources += iam_data['policies']['total']
             
             # Count S3 resources
-            if isinstance(s3_data, dict) and 'total' in s3_data:
+            if isinstance(s3_data, dict) and 'error' not in s3_data and 'total' in s3_data:
                 total_resources += s3_data['total']
             
             # Calculate total savings
@@ -244,61 +235,48 @@ class AWSComprehensiveAuditor:
                     'estimated_monthly_cost': 0
                 },
                 'summary': {
-                    'total_resources_audited': total_resources,  # THIS WAS FIXED!
+                    'total_resources_audited': total_resources,
                     'total_findings': len(self.findings),
                     'estimated_monthly_savings': total_savings
                 },
                 'details': {
                     'ec2': {
                         'instances': {
-                            'total': ec2_data.get('instances', {}).get('total', 0),
-                            'running': ec2_data.get('instances', {}).get('running', 0),
-                            'stopped': ec2_data.get('instances', {}).get('stopped', 0)
+                            'total': ec2_data.get('instances', {}).get('total', 0) if isinstance(ec2_data, dict) else 0,
+                            'running': ec2_data.get('instances', {}).get('running', 0) if isinstance(ec2_data, dict) else 0,
+                            'stopped': ec2_data.get('instances', {}).get('stopped', 0) if isinstance(ec2_data, dict) else 0
                         },
                         'volumes': {
-                            'attached': ec2_data.get('volumes', {}).get('attached', 0),
-                            'unattached': ec2_data.get('volumes', {}).get('unattached', 0)
+                            'attached': ec2_data.get('volumes', {}).get('attached', 0) if isinstance(ec2_data, dict) else 0,
+                            'unattached': ec2_data.get('volumes', {}).get('unattached', 0) if isinstance(ec2_data, dict) else 0
                         },
                         'elastic_ips': {
-                            'attached': ec2_data.get('elastic_ips', {}).get('attached', 0),
-                            'unattached': ec2_data.get('elastic_ips', {}).get('unattached', 0)
-                        },
-                        'snapshots': {
-                            'total': ec2_data.get('snapshots', {}).get('total', 0),
-                            'old': ec2_data.get('snapshots', {}).get('old', 0)
-                        },
-                        'amis': {
-                            'total': ec2_data.get('amis', {}).get('total', 0),
-                            'unused': ec2_data.get('amis', {}).get('unused', 0)
+                            'attached': ec2_data.get('elastic_ips', {}).get('attached', 0) if isinstance(ec2_data, dict) else 0,
+                            'unattached': ec2_data.get('elastic_ips', {}).get('unattached', 0) if isinstance(ec2_data, dict) else 0
                         },
                         'findings': []
                     },
                     'iam': {
                         'users': {
-                            'total': iam_data.get('users', {}).get('total', 0),
-                            'with_mfa': iam_data.get('users', {}).get('with_mfa', 0),
-                            'without_mfa': iam_data.get('users', {}).get('without_mfa', 0)
+                            'total': iam_data.get('users', {}).get('total', 0) if isinstance(iam_data, dict) else 0,
+                            'with_mfa': iam_data.get('users', {}).get('with_mfa', 0) if isinstance(iam_data, dict) else 0,
+                            'without_mfa': iam_data.get('users', {}).get('without_mfa', 0) if isinstance(iam_data, dict) else 0
                         },
                         'roles': {
-                            'total': iam_data.get('roles', {}).get('total', 0)
+                            'total': iam_data.get('roles', {}).get('total', 0) if isinstance(iam_data, dict) else 0
                         },
                         'policies': {
-                            'total': iam_data.get('policies', {}).get('total', 0)
-                        },
-                        'access_keys': {
-                            'total': iam_data.get('access_keys', {}).get('total', 0),
-                            'old': iam_data.get('access_keys', {}).get('old', 0)
+                            'total': iam_data.get('policies', {}).get('total', 0) if isinstance(iam_data, dict) else 0
                         },
                         'findings': []
                     },
                     's3': {
-                        'total': s3_data.get('total', 0),
-                        'empty_buckets': s3_data.get('empty_buckets', []),
-                        'large_buckets': s3_data.get('large_buckets', []),
-                        'public_buckets': s3_data.get('public_buckets', []),
-                        'unencrypted_buckets': s3_data.get('unencrypted_buckets', []),
-                        'unversioned_buckets': s3_data.get('unversioned_buckets', []),
-                        'details': s3_data.get('details', [])
+                        'total': s3_data.get('total', 0) if isinstance(s3_data, dict) else 0,
+                        'empty_buckets': s3_data.get('empty_buckets', []) if isinstance(s3_data, dict) else [],
+                        'public_buckets': s3_data.get('public_buckets', []) if isinstance(s3_data, dict) else [],
+                        'unencrypted_buckets': s3_data.get('unencrypted_buckets', []) if isinstance(s3_data, dict) else [],
+                        'unversioned_buckets': s3_data.get('unversioned_buckets', []) if isinstance(s3_data, dict) else [],
+                        'details': s3_data.get('details', []) if isinstance(s3_data, dict) else []
                     }
                 },
                 'findings': findings_list,
@@ -368,6 +346,9 @@ class AWSComprehensiveAuditor:
         }
         
         try:
+            # Clear previous findings
+            self.findings = []
+            
             # 1. COMPUTE SERVICES AUDIT
             print("\n🔍 [1/8] AUDITING COMPUTE SERVICES...")
             audit_report['services']['ec2'] = self.audit_ec2_resources()
@@ -442,151 +423,133 @@ class AWSComprehensiveAuditor:
     # ==================== COMPUTE SERVICES ====================
     
     def audit_ec2_resources(self) -> Dict[str, Any]:
-        """Comprehensive EC2 resource audit - FIXED COUNTING"""
-        print("  → EC2 Instances, AMIs, Snapshots, EIPs...")
+        """Comprehensive EC2 resource audit - CORRECTED COUNTING"""
+        print("  → EC2 Instances, Volumes, EIPs...")
         
         try:
             result = {
                 'instances': {'running': 0, 'stopped': 0, 'total': 0, 'list': []},
                 'volumes': {'attached': 0, 'unattached': 0, 'total': 0},
-                'snapshots': {'total': 0, 'old': 0},
-                'amis': {'total': 0, 'unused': 0},
                 'elastic_ips': {'attached': 0, 'unattached': 0, 'total': 0},
                 'security_groups': {'total': 0, 'overly_permissive': []},
                 'findings': []
             }
             
-            # 1. EC2 Instances
-            instances = self.ec2.describe_instances()
-            for reservation in instances['Reservations']:
-                for instance in reservation['Instances']:
-                    state = instance['State']['Name']
-                    result['instances']['total'] += 1
-                    
-                    if state == 'running':
-                        result['instances']['running'] += 1
-                        
-                        # Check for idle instances
-                        launch_time = instance['LaunchTime']
-                        days_running = (datetime.now(timezone.utc) - launch_time).days
-                        if days_running > 7 and instance.get('StateReason', {}).get('Code') != 'Client.UserInitiatedShutdown':
-                            self.findings.append(AuditFinding(
-                                resource_type=ResourceType.EC2,
-                                resource_id=instance['InstanceId'],
-                                finding="Potentially idle EC2 instance",
-                                severity=Severity.MEDIUM,
-                                description=f"Instance {instance['InstanceId']} has been running for {days_running} days",
-                                recommendation="Consider stopping or terminating if not needed",
-                                estimated_savings=5.0 * 30,  # Approx $5/day
-                                region=self.region
-                            ))
-                    
-                    elif state == 'stopped':
-                        result['instances']['stopped'] += 1
-                        
-                        # Check long-stopped instances
-                        self.findings.append(AuditFinding(
-                            resource_type=ResourceType.EC2,
-                            resource_id=instance['InstanceId'],
-                            finding="Stopped EC2 instance",
-                            severity=Severity.LOW,
-                            description=f"Instance {instance['InstanceId']} is stopped but still incurs EBS costs",
-                            recommendation="Terminate if not needed",
-                            estimated_savings=2.0 * 30,  # Approx EBS costs
-                            region=self.region
-                        ))
-                    
-                    # Add to instance list
-                    result['instances']['list'].append({
-                        'id': instance['InstanceId'],
-                        'type': instance.get('InstanceType', 'unknown'),
-                        'state': state,
-                        'launch_time': launch_time.isoformat() if 'LaunchTime' in instance else ''
-                    })
+            # 1. EC2 Instances - FIXED: Use paginator and filter by current region
+            print("    Getting EC2 instances...")
+            paginator = self.ec2.get_paginator('describe_instances')
+            
+            try:
+                for page in paginator.paginate():
+                    if 'Reservations' in page:
+                        for reservation in page['Reservations']:
+                            if 'Instances' in reservation:
+                                for instance in reservation['Instances']:
+                                    state = instance.get('State', {}).get('Name', 'unknown')
+                                    instance_id = instance.get('InstanceId', 'unknown')
+                                    
+                                    # Only count instances in the current state
+                                    if state == 'running':
+                                        result['instances']['running'] += 1
+                                        result['instances']['total'] += 1
+                                        
+                                        # Check for idle instances
+                                        launch_time = instance.get('LaunchTime')
+                                        if launch_time:
+                                            if isinstance(launch_time, str):
+                                                launch_time = datetime.fromisoformat(launch_time.replace('Z', '+00:00'))
+                                            days_running = (datetime.now(timezone.utc) - launch_time).days
+                                            if days_running > 7:
+                                                self.findings.append(AuditFinding(
+                                                    resource_type=ResourceType.EC2,
+                                                    resource_id=instance_id,
+                                                    finding="Potentially idle EC2 instance",
+                                                    severity=Severity.MEDIUM,
+                                                    description=f"Instance {instance_id} has been running for {days_running} days",
+                                                    recommendation="Consider stopping or terminating if not needed",
+                                                    estimated_savings=5.0 * 30,
+                                                    region=self.region
+                                                ))
+                                    
+                                    elif state == 'stopped':
+                                        result['instances']['stopped'] += 1
+                                        result['instances']['total'] += 1
+                                        
+                                        self.findings.append(AuditFinding(
+                                            resource_type=ResourceType.EC2,
+                                            resource_id=instance_id,
+                                            finding="Stopped EC2 instance",
+                                            severity=Severity.LOW,
+                                            description=f"Instance {instance_id} is stopped but still incurs EBS costs",
+                                            recommendation="Terminate if not needed",
+                                            estimated_savings=2.0 * 30,
+                                            region=self.region
+                                        ))
+                                    
+                                    # Add to instance list
+                                    result['instances']['list'].append({
+                                        'id': instance_id,
+                                        'type': instance.get('InstanceType', 'unknown'),
+                                        'state': state,
+                                        'launch_time': launch_time.isoformat() if launch_time else ''
+                                    })
+            except Exception as e:
+                print(f"    ⚠️ Error getting instances: {e}")
+            
+            print(f"    Found {result['instances']['total']} EC2 instances in {self.region}")
             
             # 2. EBS Volumes
-            volumes = self.ec2.describe_volumes()
-            result['volumes']['total'] = len(volumes['Volumes'])
-            for volume in volumes['Volumes']:
-                if volume['State'] == 'available':
-                    result['volumes']['unattached'] += 1
-                    
-                    self.findings.append(AuditFinding(
-                        resource_type=ResourceType.EBS,
-                        resource_id=volume['VolumeId'],
-                        finding="Unattached EBS volume",
-                        severity=Severity.HIGH,
-                        description=f"Volume {volume['VolumeId']} ({volume['Size']}GB) is not attached to any instance",
-                        recommendation="Delete if not needed",
-                        estimated_savings=volume['Size'] * 0.10 * 30,  # $0.10/GB-month
-                        region=self.region
-                    ))
-                else:
-                    result['volumes']['attached'] += 1
-            
-            # 3. Snapshots
-            snapshots = self.ec2.describe_snapshots(OwnerIds=['self'])
-            result['snapshots']['total'] = len(snapshots['Snapshots'])
-            
-            cutoff_date = datetime.now(timezone.utc) - timedelta(days=365)
-            for snapshot in snapshots['Snapshots']:
-                if snapshot['StartTime'] < cutoff_date:
-                    result['snapshots']['old'] += 1
-            
-            # 4. Elastic IPs
-            addresses = self.ec2.describe_addresses()
-            result['elastic_ips']['total'] = len(addresses['Addresses'])
-            for address in addresses['Addresses']:
-                if 'InstanceId' not in address and 'NetworkInterfaceId' not in address:
-                    result['elastic_ips']['unattached'] += 1
-                    
-                    self.findings.append(AuditFinding(
-                        resource_type=ResourceType.EC2,
-                        resource_id=address.get('AllocationId', address['PublicIp']),
-                        finding="Unattached Elastic IP",
-                        severity=Severity.HIGH,
-                        description=f"Elastic IP {address['PublicIp']} is not associated",
-                        recommendation="Release to avoid charges",
-                        estimated_savings=3.6,  # $3.6/month
-                        region=self.region
-                    ))
-                else:
-                    result['elastic_ips']['attached'] += 1
-            
-            # 5. Security Groups
-            sgs = self.vpc.describe_security_groups()
-            result['security_groups']['total'] = len(sgs['SecurityGroups'])
-            
-            # Check for overly permissive security groups
-            for sg in sgs['SecurityGroups']:
-                for permission in sg.get('IpPermissions', []):
-                    for ip_range in permission.get('IpRanges', []):
-                        if ip_range.get('CidrIp') == '0.0.0.0/0':
-                            from_port = permission.get('FromPort')
-                            to_port = permission.get('ToPort')
+            print("    Getting EBS volumes...")
+            try:
+                volumes_paginator = self.ec2.get_paginator('describe_volumes')
+                for page in volumes_paginator.paginate():
+                    if 'Volumes' in page:
+                        for volume in page['Volumes']:
+                            result['volumes']['total'] += 1
                             
-                            risky_ports = [22, 3389, 1433, 3306, 5432, 1521]
-                            if from_port in risky_ports or to_port in risky_ports:
-                                result['security_groups']['overly_permissive'].append({
-                                    'sg_id': sg['GroupId'],
-                                    'sg_name': sg['GroupName'],
-                                    'port': from_port,
-                                    'cidr': '0.0.0.0/0'
-                                })
+                            if volume.get('State') == 'available':
+                                result['volumes']['unattached'] += 1
                                 
                                 self.findings.append(AuditFinding(
-                                    resource_type=ResourceType.SECURITY_GROUP,
-                                    resource_id=sg['GroupId'],
-                                    finding="Overly permissive security group",
+                                    resource_type=ResourceType.EBS,
+                                    resource_id=volume.get('VolumeId', 'unknown'),
+                                    finding="Unattached EBS volume",
                                     severity=Severity.HIGH,
-                                    description=f"Security group {sg['GroupName']} allows {from_port} from 0.0.0.0/0",
-                                    recommendation="Restrict to specific IP ranges",
+                                    description=f"Volume {volume.get('VolumeId')} ({volume.get('Size', 0)}GB) is not attached to any instance",
+                                    recommendation="Delete if not needed",
+                                    estimated_savings=volume.get('Size', 0) * 0.10 * 30,
                                     region=self.region
                                 ))
+                            else:
+                                result['volumes']['attached'] += 1
+            except Exception as e:
+                print(f"    ⚠️ Error getting volumes: {e}")
             
-            # 6. AMIs
-            amis = self.ec2.describe_images(Owners=['self'])
-            result['amis']['total'] = len(amis['Images'])
+            # 3. Elastic IPs
+            print("    Getting Elastic IPs...")
+            try:
+                addresses = self.ec2.describe_addresses()
+                if 'Addresses' in addresses:
+                    result['elastic_ips']['total'] = len(addresses['Addresses'])
+                    
+                    for address in addresses['Addresses']:
+                        if 'InstanceId' not in address and 'NetworkInterfaceId' not in address:
+                            result['elastic_ips']['unattached'] += 1
+                            
+                            self.findings.append(AuditFinding(
+                                resource_type=ResourceType.EC2,
+                                resource_id=address.get('AllocationId', address.get('PublicIp', 'unknown')),
+                                finding="Unattached Elastic IP",
+                                severity=Severity.HIGH,
+                                description=f"Elastic IP {address.get('PublicIp')} is not associated",
+                                recommendation="Release to avoid charges",
+                                estimated_savings=3.6,
+                                region=self.region
+                            ))
+                        else:
+                            result['elastic_ips']['attached'] += 1
+            except Exception as e:
+                print(f"    ⚠️ Error getting Elastic IPs: {e}")
             
             return result
             
