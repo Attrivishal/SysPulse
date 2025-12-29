@@ -547,31 +547,29 @@ Advanced AI-powered recommendations
 
 Enterprise-grade security features
 
-<div align="center">
 Built with ❤️ by Vishal Attri
 
 https://api.star-history.com/svg?repos=Attrivishal/aws-system-pulse&type=Date
 
-</div> ```
+
 
 ## Installation
 
 Install my-project with npm
 
-```bash
+
 npm install my-project
 cd my-project
-```
+  
 
 ## Usage/Examples
 
-```javascript
+
 import Component from 'my-project'
 
 function App() {
   return <Component />
 }
-```
 
 ## License
 
