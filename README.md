@@ -550,27 +550,3 @@ Enterprise-grade security features
 Built with ❤️ by Vishal Attri
 
 https://api.star-history.com/svg?repos=Attrivishal/aws-system-pulse&type=Date
-
-
-
-## Installation
-
-Install my-project with npm
-
-
-npm install my-project
-cd my-project
-  
-
-## Usage/Examples
-
-
-import Component from 'my-project'
-
-function App() {
-  return <Component />
-}
-
-## License
-
-[MIT](https://choosealicense.com/licenses/mit/)
